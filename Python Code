@@ -1,0 +1,367 @@
+import tkinter as tk
+from tkinter import messagebox
+from PIL import Image, ImageTk
+import firebase_admin
+from firebase_admin import credentials, db
+import pygame
+import os
+import sys
+from contextlib import redirect_stdout, redirect_stderr
+
+
+
+cred = credentials.Certificate("C:/Users/Attilas/Desktop/firebase_credentials.json")
+
+# Initialize the Firebase app
+firebase_admin.initialize_app(cred, {
+    'databaseURL': "https://my-knowledge-game-default-rtdb.europe-west1.firebasedatabase.app/"  # Correct databaseURL key
+})
+
+def save_results_to_firebase(username, correct_answers, wrong_answers, total_questions, percentage_correct):
+    # Reference to the Firebase node 'quiz_results'
+    results_ref = db.reference('quiz_results')
+
+    # Push the user's results to Firebase
+    results_ref.push({
+        'username': username,
+        'correct_answers': correct_answers,
+        'wrong_answers': wrong_answers,
+        'total_questions': total_questions,
+        'percentage_correct': percentage_correct
+    })
+
+# Global variables for storing quiz statistics
+correct_answers = 0
+wrong_answers = 0
+total_questions = 0
+completed_categories = set()
+username = ""
+
+# Categories and sample questions
+Categories = ["Music", "Football", "History", "Geography", "Movies"]
+
+questions = {
+    "Music": [
+        ("Which one is widely credited as one of the founding fathers of metal music'?", ["Ozzy Osbourne", "Axl Rose", "Bruce Dickinson", "Alice Cooper"], "Ozzy Osbourne"),
+        ("What is the real name of Eminem?", ["Mike Ehrmantraut", "Martin Freeman", "Marshall Mathers", "Marshal Mathew"], "Marshall Mathers"),
+        ("Which artist played 27 instruments in his debut album?", ["Stromae", "Prince", "Billy Joe Armstrong", "Lady Gaga"], "Prince"),
+        ("From which rock's group song did Lady Gaga take her name?", ["Iron Maiden", "Queen", "Kiss", "Guns n Roses"], "Queen"),
+        ("What does the song Zombie by the Irish Band Cranberries is about?", ["Anti-War", "Civil War", "Against Goverment Policy", "Unity"], "Anti-War"),
+        ("What is the name of the new Linkin Park singer?", ["Chester Bennington", "Alicia Keys", "Mike Shinoda", "Emily Armstrong"], "Emily Armstrong"),
+        ("What is the song Pumped Up Kicks about??", ["Bullying", "Psycotic Isolated Kid", "Domestic Violence", "Sneakers"], "Psycotic Isolated Kid"),
+        ("Which artist has the most selling album?", ["Eminem", "AC/DC", "Beatles", "Michael Jackson"], "Michael Jackson")
+    ],
+    "Football": [
+        ("Which country won the FIFA World Cup in 2002?", ["Brazil", "France", "Germany", "Argentina"], "Brazil"),
+        ("Which is the oldest football club?", ["Queens Park", "Nottingham Forest", "Sheffield FC", "Hallam FC"], "Sheffield FC"),
+        ("Which Greek Football Club denied the transfer of Ronaldo R9 back in 1996?", ["Olympiacos", "AEK", "Kalamata", "Panionios"], "Kalamata"),
+        ("Which defending player didn't concede a foul for a whole year?", ["Gennaro Gattuso", "Philip Lahm", "Sergio Ramos", "Gerard Pique"], "Philip Lahm"),
+        ("What ethnicity's manager have never won the Premier League?", ["Spanish", "Italian", "English", "German"], "English"),
+        ("Which is the first professional team Jurgen Klopp managed?", ["Dortmund", "Mainz", "Schalke", "Eintracht Frankfurt"], "Mainz"),
+        ("What is Lionel's Messi nickname", ["El Loco", "Poco Coco", "La Pulga", "Barcelonita"], "La Pulga"),
+        ("Which player is famous for biting another player on football field?", ["Rio Ferdinand", "Bonucci", "Luis Suarez", "Emilio Gaviria"], "Luis Suarez")
+    ],
+    "History": [
+        ("Who was the first Emperor of Rome?", ["Julius Caesar", "Augustus Caesar", "Tiberius Caesar", "Caligula"], "Augustus Caesar"),
+        ("Who was the founder of the Holy Roman Empire?", ["Julius Caesar", "Charlemagne", "Otto the Great", "Justinian I"], "Charlemagne"),
+        ("Which countries fought the 100 years war?", ["France-England", "France-Germany", "England-Germany", "Spain-Portugal"], "France-England"),
+        ("The United States bought Alaska from which country?", ["Russia", "Canada", "Finland", "Sweden"], "Russia"),
+        ("How many years did the 100 years war last?", ["100", "120", "116", "103"], "116"),
+        ("How many U.S. presidents have been assassinated?", ["1", "2", "3", "4"], "4"),
+        ("Which Greek historian is known as the “Father of History”?", ["Aristoteles", "Herodotus", "Homerus", "Platon"], "Herodotus"),
+        ("The Ptolemy dynasty ruled which ancient kingdom?", ["Syria", "Persia", "Thrace", "Egypt"], "Egypt")
+    ],
+    "Geography": [
+        ("Which country has 3 capitals?", ["Israel", "Sudan", "South Africa", "Ethiopia"], "South Africa"),
+        ("In which American city is the Golden Gate Bridge located?", ["New York", "Los Angeles", "San Fransisco", "Chicago"], "San Fransisco"),
+        ("What present-day Italian city does Mt. Vesuvius overlook?", ["Naples", "Milan", "Rome", "Sicily"], "Naples"),
+        ("What planet can reach closest to Earth?", ["Moon", "Venus", "Mars", "Uranus"], "Venus"),
+        ("Where are the Spanish Steps located?", ["Madrid", "Valencia", "Paris", "Rome"], "Rome"),
+        ("How many countries are there in the United Kingdom?", ["3", "4", "5", "6"], "4"),
+        ("What country does the Rhine River run through?", ["Hungary", "Austria", "Germany", "Poland"], "Germany"),
+        ("Mt. Fuji is the highest point located in which Asian country?", ["Japan", "China", "Mongolia", "South Korea"], "Japan")
+    ],
+    "Movies": [
+        ("Which movie features the quote 'I'll be back'?", ["Die Hard", "The Terminator", "Predator", "Robocop"], "The Terminator"),
+        ("Who directed the movie 'Inception'?", ["Christopher Nolan", "Steven Spielberg", "Quentin Tarantino", "James Cameron"], "Christopher Nolan"),
+        ("In The Matrix, what color is the pill that Neo takes??", ["Blue", "Red", "Green", "Purple"], "Red"),
+        ("Who was Obi-Wan Kenobi’s Jedi mentor, killed by Darth Maul?", ["Master Yoda", "Mace Windu", "Kylo Ren", "Qui-Gon Jinn"], "Qui-Gon Jinn"),
+        ("The Hurricane and Cinderella Man are biographical films about which sport?", ["Ballet", "Boxing", "Extreme Sports", "Rally"], "Boxing"),
+        ("What is the name of the corporate that exposed Virus-T at Resident Evil?", ["Vianex", "Umbrella", "Bayer", "Pharmaceu"], "Umbrella"),
+        ("The name of Gandalf's horse was", ["Bill", "Shadowfax", "Brego", "Velarion"], "Shadowfax"),
+        ("Who broke his toe during filming for real in LOTR?", ["Legolas", "Gimli", "Aragorn", "Gollum"], "Aragorn")
+    ]
+}
+
+category_colors = {
+    "Music": "red",
+    "Football": "lawngreen",
+    "History": "gold2",
+    "Geography": "SlateBlue2",
+    "Movies": "gray6"
+}
+
+def show_username_screen():
+    global username
+    # Clear all widgets but keep the background image
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    # Display the username input screen
+    root.configure(bg="purple1")
+
+    username_label = tk.Label(root, text="Enter your username:", font=("Helvetica", 24), fg="gold", bg="black")
+    username_label.pack(pady=80)
+
+    username_entry = tk.Entry(root, font=("Helvetica", 24))
+    username_entry.pack(pady=20)
+
+    def start_quiz_screen():
+        global username
+        username = username_entry.get().strip()
+        if username:
+            select_category()
+        else:
+            messagebox.showwarning("Input Error", "Please enter a username.")
+
+    start_button = tk.Button(root, text="Start Quiz", command=start_quiz_screen, font=("Helvetica", 14), bg="gold", fg="black")
+    start_button.pack(pady=20)
+
+# Function to select a category
+def select_category():
+    global correct_answers, wrong_answers, total_questions
+    # Clear the screen
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    # Display category options
+    root.configure(bg="purple1")
+    category_label = tk.Label(root, text="Select a Category", font=("Helvetica", 18), fg="gold", bg="black")
+    category_label.pack(pady=20)
+
+    # Create buttons for each category
+    for category in Categories:
+        state = tk.DISABLED if category in completed_categories else tk.NORMAL
+        category_button = tk.Button(
+            root,
+            text=category,
+            font=("Helvetica", 14),
+            fg="gold",
+            bg="black",
+            state=state,
+            command=lambda c=category: start_quiz(c)  # Default argument captures the current value of `category`
+        )
+        category_button.pack(pady=10)
+
+def start_quiz(category):
+    global correct_answers, wrong_answers, total_questions
+
+    if category not in questions:
+        messagebox.showerror("Error", "No questions available for this category!")
+        return
+
+    # Set the background color
+    root.configure(bg=category_colors[category])
+
+    question_index = 0
+    time_limit = 61  # Time limit in seconds
+    timer_id = None  # To store the timer reference
+
+    def show_next_question():
+        nonlocal question_index, time_limit, timer_id
+
+        # Clear the screen
+        for widget in root.winfo_children():
+            widget.destroy()
+
+        # Check if there are more questions
+        if question_index < len(questions[category]):
+            # Get the current question
+            question, options, correct_answer = questions[category][question_index]
+
+            # Display the question
+            question_label = tk.Label(root, text=question, font=("Helvetica", 16), bg="black", fg="gold")
+            question_label.pack(pady=50, padx=50, anchor="center")
+
+            # Variable to track user's answer
+            user_answer = tk.StringVar()
+
+            # Display multiple-choice options as radio buttons
+            radio_buttons = []
+
+            def on_select():
+                selected_value = user_answer.get()
+                for rb in radio_buttons:
+                    if rb.cget('value') == selected_value:
+                        rb.config(bg="white", fg="black")  # Highlight selected button
+                    else:
+                        rb.config(bg="black", fg="white")  # Default color for other buttons
+
+            for option in options:
+                rb = tk.Radiobutton(
+                    root,
+                    text=option,
+                    variable=user_answer,
+                    value=option,
+                    font=("Helvetica", 14),
+                    bg="black",
+                    fg="white",
+                    cursor="hand2",
+                    command=on_select  # Call on_select function when a button is selected
+                )
+                rb.pack(anchor="center")
+                radio_buttons.append(rb)
+
+            # Timer label
+            timer_label = tk.Label(root, text=f"Time left: {time_limit}", font=("Helvetica", 14), bg="black", fg="red")
+            timer_label.pack(pady=10)
+
+            # Timer function
+            def update_timer():
+                nonlocal time_limit, timer_id
+                if time_limit > 0:
+                    time_limit -= 1
+                    timer_label.config(text=f"Time left: {time_limit}")
+                    timer_id = root.after(1000, update_timer)  # Schedule the function to be called after 1 second
+                else:
+                    # Time's up, check the answer automatically
+                    check_answer()
+
+            # Function to check the answer
+            def check_answer():
+                nonlocal question_index
+                if timer_id is not None:
+                    root.after_cancel(timer_id)  # Cancel the timer if it's running
+                if user_answer.get() == correct_answer:
+                    messagebox.showinfo("Correct!", "Well done! Correct answer. You can proceed to the next question")
+                    global correct_answers
+                    correct_answers += 1
+                else:
+                    messagebox.showerror("Incorrect", f"Sorry, wrong. You should pay a visit to the library. The correct answer is: {correct_answer}")
+                    global wrong_answers
+                    wrong_answers += 1
+
+                # Move to the next question
+                question_index += 1
+                show_next_question()
+
+            # Submit button
+            submit_button = tk.Button(root, text="Submit Answer", command=check_answer, font="bold", activebackground="gold", activeforeground="black")
+            submit_button.pack(pady=20)
+
+            # Start the timer
+            update_timer()
+
+            # Update the total questions count
+            global total_questions
+            total_questions += 1
+
+        else:
+            # No more questions, end the quiz
+            completed_categories.add(category)  # Mark category as completed
+
+            if len(completed_categories) == len(Categories):
+                # All categories completed
+                show_results()
+            else:
+                select_category()  # Refresh category selection screen
+
+    # Show the first question
+    show_next_question()
+
+def show_results():
+    global correct_answers, wrong_answers, total_questions
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    # Calculate percentage
+    percentage_correct = (correct_answers / total_questions) * 100 if total_questions > 0 else 0
+
+    # Results display
+    results_frame = tk.Frame(root, bg="black")
+    results_frame.pack(fill='both', expand=True)
+
+    result_title = tk.Label(results_frame, text="Quiz Results", font=("Helvetica", 18, "bold"), fg="white", bg="black")
+    result_title.pack(pady=20)
+
+    correct_label = tk.Label(results_frame, text=f"Correct Answers: {correct_answers}", font=("Helvetica", 16), fg="green", bg="black")
+    correct_label.pack(pady=10)
+
+    wrong_label = tk.Label(results_frame, text=f"Wrong Answers: {wrong_answers}", font=("Helvetica", 16), fg="red", bg="black")
+    wrong_label.pack(pady=10)
+
+    total_label = tk.Label(results_frame, text=f"Total Questions: {total_questions}", font=("Helvetica", 16), fg="SkyBlue1", bg="black")
+    total_label.pack(pady=10)
+
+    percentage_label = tk.Label(results_frame, text=f"Percentage Correct: {percentage_correct:.2f}%", font=("Helvetica", 16), fg="gold", bg="black")
+    percentage_label.pack(pady=10)
+
+    # Optionally, add a button to restart or exit
+    restart_button = tk.Button(results_frame, text="Restart Quiz", command=restart_quiz, font=("Helvetica", 14), bg="magenta2", fg="black")
+    restart_button.pack(pady=20)
+
+    save_results_to_firebase(username, correct_answers, wrong_answers, total_questions, percentage_correct)
+
+def restart_quiz():
+    global correct_answers, wrong_answers, total_questions, completed_categories
+    correct_answers = 0
+    wrong_answers = 0
+    total_questions = 0
+    completed_categories.clear()
+    select_category()
+
+# Function to handle the button click event
+def on_button_click():
+    # Show the username input screen
+    username = show_username_screen()  # This should return the username
+
+    if username:
+        # If the user provided a username, proceed to category selection
+        category = select_category()
+
+        if category:
+            # Start the quiz with the selected category and username
+            start_quiz(username, category)
+
+#music
+def play_music():
+    pygame.mixer.init()
+    pygame.mixer.music.load(r"C:\Users\Attilas\Desktop\Main Theme  Pirates of the Caribbean.mp3")  # Replace with your actual music file path
+    pygame.mixer.music.play(-1)  # Loop the music indefinitely
+
+# Function to handle the button click event
+def on_button_click():
+    show_username_screen()
+
+# UI Main application window
+root = tk.Tk()
+root.title("Created by Bill Angel")
+root.geometry("900x580")
+
+play_music()  # Play background music from the star
+
+# Image Background
+try:
+    image = Image.open(r"C:\Users\Attilas\Desktop\magic.jpg")
+    tk_image = ImageTk.PhotoImage(image)
+
+    # Background Label
+    label = tk.Label(root, image=tk_image)
+    label.place(relwidth=1, relheight=1)
+except Exception as e:
+    print(f"Error loading image: {e}")
+
+# Title Label
+title_label = tk.Label(root, text="Welcome to my Knowledge Quiz Game", font=("Helvetica", 16, "bold"), bg="#8A2BE2", fg="gold")
+title_label.pack(pady=20)
+
+button_frame = tk.Frame(root, bg="#8A2BE2")
+button_frame.pack(side='bottom', fill='x', pady=10)
+
+button = tk.Button(button_frame, text="Press here if you dare to continue", command=on_button_click, font=("Helvetica", 12, "bold"), bg="#8A2BE2", fg="gold")
+button.pack()
+
+# Start the application with the title screen
+root.mainloop()
+
+
